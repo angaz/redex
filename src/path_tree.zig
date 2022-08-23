@@ -60,6 +60,33 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                 return n;
             }
 
+            pub fn detatch_node(self: *@This()) *@This() {
+                if (self.parent) |parent| {
+                    if (parent.first_node == self) {
+                        parent.first_node = self.next_sibling;
+                    }
+                }
+
+                if (self.next_sibling) |next_sibling| {
+                    next_sibling.previous_sibling = self.previous_sibling;
+                }
+
+                if (self.previous_sibling) |previous_sibling| {
+                    previous_sibling.next_sibling = self.next_sibling;
+                }
+
+                return self;
+            }
+
+            pub fn deinit_tree(self: *@This(), allocator: std.mem.Allocator) void {
+                var children = self.list();
+                while (children.next()) |child| {
+                    child.deinit_tree(allocator);
+                }
+
+                allocator.destroy(self);
+            }
+
             pub fn init(allocator: std.mem.Allocator, data: T) !*@This() {
                 var n = try allocator.create(@This());
                 n.first_child = null;
@@ -102,6 +129,11 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
             tree.root = root;
 
             return tree;
+        }
+
+        pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+            self.root.deinit_tree(allocator);
+            allocator.destroy(self);
         }
 
         pub fn print(self: @This()) void {

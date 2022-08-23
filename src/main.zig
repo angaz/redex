@@ -28,6 +28,7 @@ pub fn main() !void {
 
     var root = try U8PathTree.Node.init(allocator, "/root/");
     var tree = try U8PathTree.init(allocator, root);
+    defer tree.deinit(allocator);
 
     for (keys) |key| {
         var it = std.mem.split(u8, key, ":");
