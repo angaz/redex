@@ -1,0 +1,3 @@
+[submodule "src/zig-okredis"]
+	path = src/zig-okredis
+	url = https://github.com/kristoff-it/zig-okredis.git

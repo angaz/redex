@@ -1,0 +1,6 @@
+.cache
+debug
+release
+result
+zig-cache
+zig-out
