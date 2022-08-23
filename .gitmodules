@@ -4,3 +4,9 @@
 [submodule "src/zig-spoon"]
 	path = src/zig-spoon
 	url = https://git.sr.ht/~leon_plickat/zig-spoon
+[submodule "src/src/zig-args"]
+	path = src/src/zig-args
+	url = https://github.com/MasterQ32/zig-args.git
+[submodule "src/zig-args"]
+	path = src/zig-args
+	url = https://github.com/MasterQ32/zig-args.git
