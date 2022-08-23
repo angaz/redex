@@ -1,4 +1,7 @@
 const std = @import("std");
+const debug = std.debug;
+const assert = debug.assert;
+const testing = std.testing;
 
 pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type {
     return struct {
@@ -108,4 +111,44 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
             }
         }
     };
+}
+
+fn u8_order(left: []const u8, right: []const u8) std.math.Order {
+    return std.mem.order(u8, left, right);
+}
+pub const U8PathTree = PathTree([]const u8, u8_order);
+
+test "key tree" {
+    var rn = U8PathTree.Node{ .data = "/root/" };
+    var kt = U8PathTree{ .root = &rn };
+
+    try testing.expect(std.mem.eql(u8, kt.root.data, "/root/"));
+    var cn = kt.root;
+    var n = U8PathTree.Node{ .data = "movies" };
+    _ = cn.insert_child(&n);
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.data, "movies"));
+    var n2 = U8PathTree.Node{ .data = "actors" };
+    _ = cn.insert_child(&n2);
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.data, "actors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.data, "movies"));
+    var n3 = U8PathTree.Node{ .data = "directors" };
+    _ = cn.insert_child(&n3);
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.data, "actors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.data, "directors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.next_sibling.?.data, "movies"));
+    var n4 = U8PathTree.Node{ .data = "vfx" };
+    _ = cn.insert_child(&n3);
+    _ = cn.insert_child(&n4);
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.data, "actors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.data, "directors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.next_sibling.?.data, "movies"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.next_sibling.?.next_sibling.?.data, "vfx"));
+
+    var n5 = U8PathTree.Node{ .data = "12345" };
+    _ = n2.insert_child(&n5);
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.data, "actors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.data, "directors"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.next_sibling.?.data, "movies"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.next_sibling.?.next_sibling.?.next_sibling.?.data, "vfx"));
+    try testing.expect(std.mem.eql(u8, kt.root.first_child.?.first_child.?.data, "12345"));
 }
