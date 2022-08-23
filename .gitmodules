@@ -1,3 +1,6 @@
 [submodule "src/zig-okredis"]
 	path = src/zig-okredis
 	url = https://github.com/kristoff-it/zig-okredis.git
+[submodule "src/zig-spoon"]
+	path = src/zig-spoon
+	url = https://git.sr.ht/~leon_plickat/zig-spoon
