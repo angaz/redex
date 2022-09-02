@@ -1,10 +1,10 @@
-const std = @import("std");
-const path_tree = @import("./path_tree.zig");
-const U8PathTree = path_tree.U8PathTree;
-const net = std.net;
-const okredis = @import("./zig-okredis/src/okredis.zig");
 const Client = okredis.Client;
+const U8PathTree = path_tree.U8PathTree;
 const debug = std.debug;
+const net = std.net;
+const okredis = @import("./okredis/okredis.zig");
+const path_tree = @import("./path_tree.zig");
+const std = @import("std");
 
 pub fn main() !void {
     const addr = try net.Address.parseIp4("0.0.0.0", 6379);
@@ -40,5 +40,5 @@ pub fn main() !void {
         }
     }
 
-    tree.print();
+    tree.print(allocator);
 }

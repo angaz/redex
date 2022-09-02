@@ -3,6 +3,53 @@ const debug = std.debug;
 const assert = debug.assert;
 const testing = std.testing;
 
+const PathBuilder = struct {
+    path_rev: []u8 = undefined,
+    p_len: usize = 0,
+    separator: u8 = ':',
+
+    pub fn init(allocator: std.mem.Allocator, separator: u8) !*@This() {
+        var pb = try allocator.create(PathBuilder);
+
+        pb.path_rev = try allocator.alloc(u8, 512);
+        pb.p_len = 0;
+        pb.separator = separator;
+
+        return pb;
+    }
+
+    pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
+        allocator.free(self.path_rev);
+        allocator.destroy(self);
+    }
+
+    pub fn push(self: *@This(), key: []const u8) void {
+        if (self.p_len != 0) {
+            self.path_rev[self.p_len] = self.separator;
+            self.p_len += 1;
+        }
+
+        var i = key.len;
+        while (i > 0) {
+            i -= 1;
+            self.path_rev[self.p_len] = key[i];
+            self.p_len += 1;
+        }
+    }
+
+    pub fn path(self: *@This(), allocator: std.mem.Allocator) ![]u8 {
+        var p = try allocator.alloc(u8, self.p_len);
+
+        var i: usize = 0;
+        while (i < self.p_len) {
+            p[i] = self.path_rev[self.p_len - i - 1];
+            i += 1;
+        }
+
+        return p;
+    }
+};
+
 pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type {
     return struct {
         pub const Node = struct {
@@ -13,6 +60,26 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
             previous_sibling: ?*@This() = null,
 
             data: T,
+
+            pub fn path(self: *@This(), allocator: std.mem.Allocator, separator: u8) ![]u8 {
+                var builder = try PathBuilder.init(allocator, separator);
+                defer builder.deinit(allocator);
+
+                var current_node: ?*@This() = self;
+                while (current_node) |node| {
+                    if (node.parent == null) {
+                        break;
+                    }
+                    builder.push(node.data);
+                    current_node = node.parent;
+                }
+
+                return builder.path(allocator);
+            }
+
+            pub fn is_leaf(self: *@This()) bool {
+                return self.first_child == null;
+            }
 
             pub fn insert_child(self: *@This(), n: *@This()) *@This() {
                 if (self.first_child) |first_child| {
@@ -113,11 +180,12 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                 return ListIterator{ .current_node = self.first_child };
             }
 
-            pub fn print(self: *@This()) void {
-                std.debug.print("{s}\n", .{self.data});
+            pub fn print(self: *@This(), allocator: std.mem.Allocator) void {
+                if (self.is_leaf())
+                    std.debug.print("{s}\n", .{self.path(allocator, ':')});
                 var children = self.list();
                 while (children.next()) |child| {
-                    child.print();
+                    child.print(allocator);
                 }
             }
         };
@@ -136,10 +204,10 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
             allocator.destroy(self);
         }
 
-        pub fn print(self: @This()) void {
+        pub fn print(self: @This(), allocator: std.mem.Allocator) void {
             var children = self.root.list();
             while (children.next()) |child| {
-                child.print();
+                child.print(allocator);
             }
         }
     };
