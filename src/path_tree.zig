@@ -292,6 +292,9 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                     if (n != new) {
                         allocator.destroy(n);
                     }
+                    if (new.is_first_sibling()) {
+                        self.root = new;
+                    }
                     current_node = new;
                 } else {
                     self.root = n;
