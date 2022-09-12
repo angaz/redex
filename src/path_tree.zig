@@ -6,27 +6,24 @@ const testing = std.testing;
 const PathBuilder = struct {
     path_rev: []u8 = undefined,
     p_len: usize = 0,
-    separator: u8 = ':',
 
-    pub fn init(allocator: std.mem.Allocator, separator: u8) !*@This() {
-        var pb = try allocator.create(PathBuilder);
-
-        pb.path_rev = try allocator.alloc(u8, 512);
-        pb.p_len = 0;
-        pb.separator = separator;
-
-        return pb;
+    pub fn init(
+        allocator: std.mem.Allocator,
+        initial_key_len: usize,
+    ) !@This() {
+        return @This(){
+            .path_rev = try allocator.alloc(u8, initial_key_len),
+            .p_len = 0,
+        };
     }
 
     pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
         allocator.free(self.path_rev);
-        allocator.destroy(self);
     }
 
-    pub fn push(self: *@This(), key: []const u8) void {
-        if (self.p_len != 0) {
-            self.path_rev[self.p_len] = self.separator;
-            self.p_len += 1;
+    pub fn push(self: *@This(), allocator: std.mem.Allocator, key: []const u8) !void {
+        if (self.path_rev.len < self.p_len + key.len) {
+            self.path_rev = try allocator.realloc(self.path_rev, self.path_rev.len * 2);
         }
 
         var i = key.len;
@@ -53,24 +50,28 @@ const PathBuilder = struct {
 pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type {
     return struct {
         pub const Node = struct {
-            first_child: ?*@This() = null,
-            next_sibling: ?*@This() = null,
-
             parent: ?*@This() = null,
+            first_child: ?*@This() = null,
+
+            next_sibling: ?*@This() = null,
             previous_sibling: ?*@This() = null,
 
             data: T,
 
-            pub fn path(self: *@This(), allocator: std.mem.Allocator, separator: u8) ![]u8 {
-                var builder = try PathBuilder.init(allocator, separator);
+            pub fn path(
+                self: *@This(),
+                allocator: std.mem.Allocator,
+                initial_key_len: usize,
+            ) ![]u8 {
+                var builder = try PathBuilder.init(
+                    allocator,
+                    initial_key_len,
+                );
                 defer builder.deinit(allocator);
 
                 var current_node: ?*@This() = self;
                 while (current_node) |node| {
-                    if (node.parent == null) {
-                        break;
-                    }
-                    builder.push(node.data);
+                    try builder.push(allocator, node.data);
                     current_node = node.parent;
                 }
 
@@ -81,45 +82,81 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                 return self.first_child == null;
             }
 
+            pub fn is_first_sibling(self: *@This()) bool {
+                return self.previous_sibling == null;
+            }
+
+            pub fn is_top_level(self: @This()) bool {
+                return self.parent == null;
+            }
+
+            pub fn is_root(self: *@This()) bool {
+                return (self.is_top_level() and self.is_first_sibling());
+            }
+
+            pub fn find_first_sibling(self: *@This()) *@This() {
+                if (self.is_first_sibling()) {
+                    return self;
+                }
+
+                var current_node = self;
+                while (current_node.previous_sibling) |previous| {
+                    current_node = previous;
+                }
+
+                return current_node;
+            }
+
+            fn insert_previous_sibling(self: *@This(), n: *@This()) *@This() {
+                n.previous_sibling = self.previous_sibling;
+                n.next_sibling = self;
+                if (self.previous_sibling) |previous_sibling| {
+                    previous_sibling.next_sibling = n;
+                }
+                self.previous_sibling = n;
+
+                return n;
+            }
+
+            fn insert_next_sibling(self: *@This(), n: *@This()) *@This() {
+                n.previous_sibling = self;
+                n.next_sibling = self.next_sibling;
+                if (self.next_sibling) |next_sibling| {
+                    next_sibling.previous_sibling = n;
+                }
+                self.next_sibling = n;
+
+                return n;
+            }
+
+            pub fn insert_sibling(self: *@This(), n: *@This()) *@This() {
+                n.parent = self.parent;
+
+                var current_node = self.find_first_sibling();
+                while (true) {
+                    switch (order(n.data, current_node.data)) {
+                        .eq => return current_node,
+                        .lt => return current_node.insert_previous_sibling(n),
+                        .gt => {
+                            if (current_node.next_sibling) |next_sibling| {
+                                current_node = next_sibling;
+                            } else {
+                                return current_node.insert_next_sibling(n);
+                            }
+                        },
+                    }
+                }
+            }
+
             pub fn insert_child(self: *@This(), n: *@This()) *@This() {
                 if (self.first_child) |first_child| {
-                    var cmp = order(n.data, first_child.data);
+                    var new = first_child.insert_sibling(n);
 
-                    if (cmp == .eq) {
-                        return first_child;
+                    if (new.is_first_sibling()) {
+                        self.first_child = new;
                     }
 
-                    n.parent = self;
-
-                    if (cmp == .lt) {
-                        self.first_child = n;
-                        first_child.previous_sibling = n;
-                        n.next_sibling = first_child;
-                        return n;
-                    }
-
-                    var current_node = first_child;
-                    while (current_node.next_sibling) |next_sibling| {
-                        cmp = order(n.data, next_sibling.data);
-
-                        if (cmp == .eq) {
-                            return next_sibling;
-                        }
-
-                        if (cmp == .lt) {
-                            current_node.next_sibling = n;
-                            next_sibling.previous_sibling = n;
-                            n.previous_sibling = current_node;
-                            n.next_sibling = next_sibling;
-                            return n;
-                        }
-
-                        current_node = next_sibling;
-                    }
-
-                    current_node.next_sibling = n;
-                    n.previous_sibling = current_node;
-                    return n;
+                    return new;
                 }
 
                 self.first_child = n;
@@ -180,9 +217,43 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                 return ListIterator{ .current_node = self.first_child };
             }
 
+            pub fn iter(self: *@This()) ListIterator {
+                return ListIterator{ .current_node = self };
+            }
+
+            pub fn siblings_left(self: *@This(), n_left: usize) *@This() {
+                var current_node = self;
+
+                var i: usize = 0;
+                while (i < n_left) : (i += 1) {
+                    if (current_node.previous_sibling) |n| {
+                        current_node = n;
+                    } else {
+                        return current_node;
+                    }
+                }
+
+                return current_node;
+            }
+
+            pub fn siblings_right(self: *@This(), n_right: usize) *@This() {
+                var current_node = self;
+
+                var i: usize = 0;
+                while (i < n_right) : (i += 1) {
+                    if (current_node.next_sibling) |n| {
+                        current_node = n;
+                    } else {
+                        return current_node;
+                    }
+                }
+
+                return current_node;
+            }
+
             pub fn print(self: *@This(), allocator: std.mem.Allocator) void {
                 if (self.is_leaf())
-                    std.debug.print("{s}\n", .{self.path(allocator, ':')});
+                    std.debug.print("{s}\n", .{self.path(allocator, 64, ':')});
                 var children = self.list();
                 while (children.next()) |child| {
                     child.print(allocator);
@@ -190,18 +261,59 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
             }
         };
 
-        root: *@This().Node,
+        root: ?*Node,
 
-        pub fn init(allocator: std.mem.Allocator, root: *@This().Node) !*@This() {
-            var tree = try allocator.create(@This());
-            tree.root = root;
-
-            return tree;
+        pub fn init() @This() {
+            return @This(){
+                .root = null,
+            };
         }
 
         pub fn deinit(self: *@This(), allocator: std.mem.Allocator) void {
-            self.root.deinit_tree(allocator);
-            allocator.destroy(self);
+            if (self.root) |root| {
+                root.deinit_tree(allocator);
+            }
+        }
+
+        pub fn insert_path(
+            self: *@This(),
+            allocator: std.mem.Allocator,
+            path: []const u8,
+            separators: []const u8,
+        ) !*Node {
+            var it = tokenize_key(u8, path, separators);
+            var current_node = self.root;
+
+            if (it.next()) |name| {
+                var n = try Node.init(allocator, name);
+
+                if (current_node) |cn| {
+                    var new = cn.insert_sibling(n);
+                    if (n != new) {
+                        allocator.destroy(n);
+                    }
+                    current_node = new;
+                } else {
+                    self.root = n;
+                    current_node = n;
+                }
+            }
+
+            while (it.next()) |name| {
+                var n = try Node.init(allocator, name);
+
+                if (current_node) |cn| {
+                    var new = cn.insert_child(n);
+                    if (n != new) {
+                        allocator.destroy(n);
+                    }
+                    current_node = new;
+                } else {
+                    unreachable;
+                }
+            }
+
+            return current_node.?;
         }
 
         pub fn print(self: @This(), allocator: std.mem.Allocator) void {
@@ -210,6 +322,77 @@ pub fn PathTree(comptime T: type, comptime order: fn (T, T) std.math.Order) type
                 child.print(allocator);
             }
         }
+    };
+}
+
+/// Basically copy-pasta from std.mem.tokenize,
+/// but keeps the separator.
+pub fn KeyPathIterator(comptime T: type) type {
+    return struct {
+        buffer: []const T,
+        delimiter_bytes: []const T,
+        index: usize,
+
+        const Self = @This();
+
+        /// Returns a slice of the current token, or null if tokenization is
+        /// complete, and advances to the next token.
+        pub fn next(self: *Self) ?[]const T {
+            const result = self.peek() orelse return null;
+            self.index += result.len;
+            return result;
+        }
+
+        /// Returns a slice of the current token, or null if tokenization is
+        /// complete. Does not advance to the next token.
+        pub fn peek(self: *Self) ?[]const T {
+            // move to beginning of token
+            while (self.index < self.buffer.len and self.isSplitByte(self.buffer[self.index])) : (self.index += 1) {}
+            const start = self.index;
+            if (start == self.buffer.len) {
+                return null;
+            }
+
+            // move to token
+            var end = start;
+            while (end < self.buffer.len) : (end += 1) {
+                if (self.isSplitByte(self.buffer[end])) {
+                    end += 1;
+                    break;
+                }
+            }
+
+            return self.buffer[start..end];
+        }
+
+        /// Returns a slice of the remaining bytes. Does not affect iterator state.
+        pub fn rest(self: Self) []const T {
+            // move to beginning of token
+            var index: usize = self.index;
+            while (index < self.buffer.len and self.isSplitByte(self.buffer[index])) : (index += 1) {}
+            return self.buffer[index..];
+        }
+
+        /// Resets the iterator to the initial token.
+        pub fn reset(self: *Self) void {
+            self.index = 0;
+        }
+
+        fn isSplitByte(self: Self, byte: T) bool {
+            for (self.delimiter_bytes) |delimiter_byte| {
+                if (byte == delimiter_byte) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    };
+}
+fn tokenize_key(comptime T: type, buffer: []const T, delimiter_bytes: []const T) KeyPathIterator(T) {
+    return .{
+        .index = 0,
+        .buffer = buffer,
+        .delimiter_bytes = delimiter_bytes,
     };
 }
 
